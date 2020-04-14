@@ -3,23 +3,31 @@ package types
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"strings"
 )
 
+// ResourceIdentifier provides the identifiers needed to interact with any arbitrary object.
 type ResourceIdentifier struct {
 	GroupVersionKind schema.GroupVersionKind
 	NamespacedName   types.NamespacedName
 }
 
+// Semistructured provides an Unstructured object, with guaranteed ResourceIdentifier fields.
+// TODO: is this necessary? Are Unstructured objects sometimes missing name, namespace, etc?
 type Semistructured struct {
 	Identifier ResourceIdentifier
 	// Unstructured is the full Unstructured object.
 	Unstructured unstructured.Unstructured
 }
 
+// UnstructuredToSemistructured takes an Unstructured object,
+// and returns a Semistructured object.
+// The Semistructured object is guaranteed to be valid.
+// An error is returned otherwise.
 func UnstructuredToSemistructured(obj unstructured.Unstructured) (Semistructured, error) {
 	gvk := obj.GroupVersionKind()
 	if gvk.Kind == "" || gvk.Version == "" {

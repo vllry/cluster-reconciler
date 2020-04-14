@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reconcile-demo
+  namespace: default
+  annotations:
+    cluster-reconciler-managed: "true"
+data:
+  ui.properties: |
+    color=purple
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations:
+    cluster-reconciler-managed: "true"
+  name: reconcile-demo2
+  namespace: default
+data:
+  ui.properties: |
+    color=purple
