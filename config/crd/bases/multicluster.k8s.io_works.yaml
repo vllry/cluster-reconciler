@@ -1,0 +1,186 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.5
+  creationTimestamp: null
+  name: works.multicluster.k8s.io
+spec:
+  group: multicluster.k8s.io
+  names:
+    kind: Work
+    listKind: WorkList
+    plural: works
+    singular: work
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      description: Work is the Schema for the works API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: WorkSpec defines the desired state of Work
+          properties:
+            workload:
+              description: Workload represents the manifest workload to be deployed
+                on spoke cluster
+              properties:
+                manifests:
+                  description: Manifests represents a list of kuberenetes resources
+                    to be deployed on the spoke cluster.
+                  items:
+                    type: object
+                  type: array
+              type: object
+          type: object
+        status:
+          description: WorkStatus defines the observed state of Work
+          properties:
+            conditions:
+              description: 'Conditions contains the different condition statuses for
+                this work. Valid condition types are: 1. Applied represents workload
+                in Work is applied successfully on spoke cluster. 2. Progressing represents
+                workload in Work is being applied on spoke cluster. 3. Available represents
+                workload in Work exists on the spoke cluster. 4. Degraded represents
+                the current state of workload does not match the desired state for
+                a certain period.'
+              items:
+                description: StatusCondition contains condition information for a
+                  work.
+                properties:
+                  lastTransitionTime:
+                    description: LastTransitionTime is the last time the condition
+                      changed from one status to another.
+                    format: date-time
+                    type: string
+                  message:
+                    description: Message is a human-readable message indicating details
+                      about the last status change.
+                    type: string
+                  reason:
+                    description: Reason is a (brief) reason for the condition's last
+                      status change.
+                    type: string
+                  status:
+                    description: Status is the status of the condition. One of True,
+                      False, Unknown.
+                    type: string
+                  type:
+                    description: Type is the type of the spoke work condition.
+                    type: string
+                required:
+                - lastTransitionTime
+                - message
+                - reason
+                - status
+                - type
+                type: object
+              type: array
+            manifestConditions:
+              description: ManifestConditions represents the conditions of each resource
+                in work deployed on spoke cluster.
+              items:
+                description: ManifestCondition represents the conditions of the resources
+                  deployed on spoke cluster
+                properties:
+                  conditions:
+                    description: Conditions represents the conditions of this resource
+                      on spoke cluster
+                    items:
+                      description: StatusCondition contains condition information
+                        for a work.
+                      properties:
+                        lastTransitionTime:
+                          description: LastTransitionTime is the last time the condition
+                            changed from one status to another.
+                          format: date-time
+                          type: string
+                        message:
+                          description: Message is a human-readable message indicating
+                            details about the last status change.
+                          type: string
+                        reason:
+                          description: Reason is a (brief) reason for the condition's
+                            last status change.
+                          type: string
+                        status:
+                          description: Status is the status of the condition. One
+                            of True, False, Unknown.
+                          type: string
+                        type:
+                          description: Type is the type of the spoke work condition.
+                          type: string
+                      required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                      type: object
+                    type: array
+                  identifier:
+                    description: resourceId represents a identity of a resource linking
+                      to manifests in spec.
+                    properties:
+                      gvk:
+                        description: GVK is the gvk of the resource
+                        properties:
+                          group:
+                            description: Group is the group of the resource.
+                            type: string
+                          kind:
+                            description: Kind is the kind of the resource.
+                            type: string
+                          version:
+                            description: Version is the version of the resource.
+                            type: string
+                        type: object
+                      namespacedName:
+                        description: NamespacedName is the namespaced/name to identify
+                          the resource
+                        properties:
+                          name:
+                            description: Name is the name of the resource
+                            type: string
+                          namespace:
+                            description: Namespace is the namespace of the resource
+                            type: string
+                        type: object
+                      ordinal:
+                        description: Ordinal represents an index in manifests list
+                        type: integer
+                    type: object
+                required:
+                - conditions
+                type: object
+              type: array
+          required:
+          - conditions
+          type: object
+      type: object
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

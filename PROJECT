@@ -1,0 +1,7 @@
+domain: k8s.io
+repo: github.com/vllry/cluster-reconciler
+resources:
+- group: multicluster
+  kind: Work
+  version: v1alpha1
+version: "2"
