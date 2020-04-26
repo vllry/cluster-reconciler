@@ -60,8 +60,12 @@ type WorkStatus struct {
 	ManifestConditions []ManifestCondition `json:"manifestConditions,omitempty"`
 }
 
-// GroupVersionKind is the same as schema.GroupVersionKind but with json tag
-type GroupVersionKind struct {
+// ResourceIdentifier provides the identifiers needed to interact with any arbitrary object.
+type ResourceIdentifier struct {
+	// Ordinal represents an index in manifests list, so the condition can still be linked
+	// to a manifest even thougth manifest cannot be parsed successfully.
+	Ordinal int `json:"ordinal,omitempty"`
+
 	// Group is the group of the resource.
 	Group string `json:"group,omitempty"`
 
@@ -70,29 +74,13 @@ type GroupVersionKind struct {
 
 	// Kind is the kind of the resource.
 	Kind string `json:"kind,omitempty"`
-}
 
-// NamespacedName is the same as typed.NamespacedName but with json tag
-type NamespacedName struct {
-	// Namespace is the namespace of the resource
+	// Namespace is the namespace of the resource, the resource is cluster scoped if the value
+	// is empty
 	Namespace string `json:"namespace,omitempty"`
 
 	// Name is the name of the resource
 	Name string `json:"name,omitempty"`
-}
-
-// ResourceIdentifier provides the identifiers needed to interact with any arbitrary object.
-type ResourceIdentifier struct {
-	// Ordinal represents an index in manifests list
-	Ordinal int `json:"ordinal,omitempty"`
-
-	// GVK is the gvk of the resource
-	// +optional
-	GVK GroupVersionKind `json:"gvk,omitempty"`
-
-	// NamespacedName is the namespaced/name to identify the resource
-	// +optional
-	NamespacedName NamespacedName `json:"namespacedName,omitempty"`
 }
 
 // ManifestCondition represents the conditions of the resources deployed on

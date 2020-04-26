@@ -41,8 +41,8 @@ type WorkReconciler struct {
 	SpokeDynamicClient dynamic.Interface
 }
 
-// +kubebuilder:rbac:groups=multicluster.k8s.io,resources=works,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=multicluster.k8s.io,resources=works/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=multicluster.x-k8s.io,resources=works,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=multicluster.x-k8s.io,resources=works/status,verbs=get;update;patch
 
 func (r *WorkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()

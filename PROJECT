@@ -1,4 +1,4 @@
-domain: k8s.io
+domain: x-k8s.io
 repo: github.com/vllry/cluster-reconciler
 resources:
 - group: multicluster
