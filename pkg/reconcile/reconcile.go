@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,17 +13,18 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/vllry/cluster-reconciler/pkg/discover"
-	"github.com/vllry/cluster-reconciler/pkg/inventory"
 	"github.com/vllry/cluster-reconciler/pkg/types"
 )
 
 const reconcilerAnnotationKey = "cluster-reconciler-managed"
 const reconcilerAnnotationValue = "true"
 
-func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interface) error {
+type FetchDesiredObjectFunc func() (map[types.ResourceIdentifier]types.Semistructured, error)
+
+func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interface, fetchFunc FetchDesiredObjectFunc) error {
 	//  Fetch resources from the cluster inventory (desired actualState).
 	// These will be a set of YAML or JSON Kubernetes Objects.
-	desiredObjects, err := inventory.FetchDesiredResources()
+	desiredObjects, err := fetchFunc()
 	if err != nil {
 		return err
 	}
