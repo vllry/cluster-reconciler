@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -21,12 +22,21 @@ const reconcilerAnnotationValue = "true"
 
 type FetchDesiredObjectFunc func() (map[types.ResourceIdentifier]types.Semistructured, error)
 
-func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interface, fetchFunc FetchDesiredObjectFunc) error {
+// ReconcileResult is to track the result of result apply
+type ReconcileResult struct {
+	Identifier types.ResourceIdentifier
+	Err        error
+	Updated    bool
+}
+
+func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interface, fetchFunc FetchDesiredObjectFunc) ([]ReconcileResult, error) {
+	results := []ReconcileResult{}
+
 	//  Fetch resources from the cluster inventory (desired actualState).
 	// These will be a set of YAML or JSON Kubernetes Objects.
 	desiredObjects, err := fetchFunc()
 	if err != nil {
-		return err
+		return results, err
 	}
 
 	// TODO inject managed annotation in all objects
@@ -40,31 +50,31 @@ func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interfa
 	// Fetch the current actualState of all desired resources.
 	currentResources, err := fetchResourceState(dynamicClient, desiredResourceList)
 	if err != nil {
-		return err
+		return results, err
 	}
 
 	// Create/update desired resources.
 	for obj, desiredState := range desiredObjects {
-		if actualState, found := currentResources[obj]; found {
+		result := ReconcileResult{}
+		if invalidGVR(desiredState.Identifier.GroupVersionResource) {
+			result.Identifier = desiredState.Identifier
+			result.Err = fmt.Errorf("Invalid gvr")
+		} else if actualState, found := currentResources[obj]; found {
 			if !sameIntent(desiredState.Unstructured, actualState.Unstructured) {
 				fmt.Println("Needs update")
 				fmt.Println(desiredState)
 				fmt.Println(actualState)
 				// Update resource.
-				err = updateResource(dynamicClient, desiredState)
-				if err != nil {
-					return err
-				}
+				result.Identifier, result.Err = updateResource(dynamicClient, desiredState)
+				result.Updated = true
 			} else {
-				fmt.Println("No update needed")
+				result.Identifier = actualState.Identifier
 			}
 		} else {
-			fmt.Println("Needs creating")
-			err = createResource(dynamicClient, desiredState)
-			if err != nil {
-				return err
-			}
+			result.Identifier, result.Err = createResource(dynamicClient, desiredState)
+			result.Updated = true
 		}
+		results = append(results, result)
 	}
 
 	// Do a diff for any actual resources that are missing from the desired actualState.
@@ -73,7 +83,7 @@ func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interfa
 		panic(err)
 	}
 
-	return nil
+	return results, nil
 }
 
 // deleteOldManagedResources deletes all managed resources that are not in the provided desired state.
@@ -114,22 +124,22 @@ func deleteOldManagedResources(typedClient kubernetes.Interface, dynamicClient d
 	return nil
 }
 
-func updateResource(client dynamic.Interface, resource types.Semistructured) error {
-	_, err := client.Resource(types.Gvk2Gvr(resource.Identifier.GroupVersionKind)).Namespace(resource.Identifier.NamespacedName.Namespace).Update(
+func updateResource(client dynamic.Interface, resource types.Semistructured) (types.ResourceIdentifier, error) {
+	_, err := client.Resource(resource.Identifier.GroupVersionResource).Namespace(resource.Identifier.NamespacedName.Namespace).Update(
 		context.Background(),
 		&resource.Unstructured,
 		metav1.UpdateOptions{},
 	)
-	return err
+	return resource.Identifier, err
 }
 
-func createResource(client dynamic.Interface, resource types.Semistructured) error {
-	_, err := client.Resource(types.Gvk2Gvr(resource.Identifier.GroupVersionKind)).Namespace(resource.Identifier.NamespacedName.Namespace).Create(
+func createResource(client dynamic.Interface, resource types.Semistructured) (types.ResourceIdentifier, error) {
+	_, err := client.Resource(resource.Identifier.GroupVersionResource).Namespace(resource.Identifier.NamespacedName.Namespace).Create(
 		context.Background(),
 		&resource.Unstructured,
 		metav1.CreateOptions{},
 	)
-	return err
+	return resource.Identifier, err
 }
 
 // isReconcilerManaged returns true if the reconciler manages the provided object.
@@ -176,15 +186,20 @@ func fetchResourceState(typedClient dynamic.Interface, desiredResources []types.
 	desiredToActual := map[types.ResourceIdentifier]*types.Semistructured{}
 	for _, desired := range desiredResources {
 		desiredToActual[desired] = nil // Indicate nothing was found.
-
+		if invalidGVR(desired.GroupVersionResource) {
+			continue
+		}
 		res, err := typedClient.Resource(
-			types.Gvk2Gvr(desired.GroupVersionKind)).Namespace(
+			desired.GroupVersionResource).Namespace(
 			desired.NamespacedName.Namespace).Get(
 			context.Background(), desired.NamespacedName.Name, metav1.GetOptions{})
-		if err != nil {
+		if apierrors.IsNotFound(err) {
+			continue
+		} else if err != nil {
 			return nil, err
 		}
 		semiStructured, err := types.UnstructuredToSemistructured(*res)
+		semiStructured.Identifier = desired
 		if err != nil {
 			return nil, err
 		}
@@ -192,4 +207,11 @@ func fetchResourceState(typedClient dynamic.Interface, desiredResources []types.
 	}
 
 	return desiredToActual, nil
+}
+
+func invalidGVR(gvr schema.GroupVersionResource) bool {
+	if gvr.Version == "" || gvr.Resource == "" {
+		return false
+	}
+	return true
 }

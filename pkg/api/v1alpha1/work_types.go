@@ -82,6 +82,9 @@ type ResourceIdentifier struct {
 	// Kind is the kind of the resource.
 	Kind string `json:"kind,omitempty"`
 
+	// Resource is the resource type of the resource
+	Resource string `json:"resource,omitempty"`
+
 	// Namespace is the namespace of the resource, the resource is cluster scoped if the value
 	// is empty
 	Namespace string `json:"namespace,omitempty"`
