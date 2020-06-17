@@ -17,20 +17,26 @@ limitations under the License.
 package controllers
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/client-go/discovery"
+	cacheddiscovery "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	multiclusterv1alpha1 "github.com/vllry/cluster-reconciler/pkg/api/v1alpha1"
+	"github.com/vllry/cluster-reconciler/pkg/restmapper"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -38,8 +44,9 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var cfg *rest.Config
-var k8sClient client.Client
+var k8sClient kubernetes.Interface
 var testEnv *envtest.Environment
+var workManager ctrl.Manager
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -54,7 +61,7 @@ var _ = BeforeSuite(func(done Done) {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{filepath.Join("../../", "config", "crd", "bases")},
 	}
 
 	var err error
@@ -67,9 +74,44 @@ var _ = BeforeSuite(func(done Done) {
 
 	// +kubebuilder:scaffold:scheme
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	k8sClient, err = kubernetes.NewForConfig(cfg)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(k8sClient).ToNot(BeNil())
+
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(dynamicClient).ToNot(BeNil())
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(discoveryClient).ToNot(BeNil())
+
+	cachedSpokeDiscoveryClient := cacheddiscovery.NewMemCacheClient(discoveryClient)
+	restMapper := restmapper.NewMapper(cachedSpokeDiscoveryClient)
+
+	stopCh := ctrl.SetupSignalHandler()
+	go restMapper.Run(stopCh)
+
+	workManager, err = ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:             scheme.Scheme,
+		MetricsBindAddress: "0",
+	})
+	Expect(err).ToNot(HaveOccurred())
+	err = (&WorkReconciler{
+		Client:             workManager.GetClient(),
+		Log:                ctrl.Log.WithName("controllers").WithName("Work"),
+		Scheme:             workManager.GetScheme(),
+		SpokeKubeClient:    k8sClient,
+		SpokeDynamicClient: dynamicClient,
+		RestMapper:         restMapper,
+	}).SetupWithManager(workManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	go func() {
+		err = workManager.Start(stopCh)
+		fmt.Printf("failed to starrt manager, %v\n", err)
+		Expect(err).ToNot(HaveOccurred())
+	}()
 
 	close(done)
 }, 60)

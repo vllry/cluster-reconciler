@@ -37,14 +37,14 @@ type WorkSpec struct {
 type WorkloadTemplate struct {
 	// Manifests represents a list of kuberenetes resources to be deployed on the spoke cluster.
 	// +optional
-	Manifests []Manifest `json:"manifests,omitempty" protobuf:"bytes,2,rep,name=manifests"`
+	Manifests []Manifest `json:"manifests,omitempty"`
 }
 
 // Manifest represents a resource to be deployed on spoke cluster
 type Manifest struct {
 	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields
-	runtime.RawExtension `json:",inline" protobuf:"bytes,1,opt,name=rawExtension"`
+	runtime.RawExtension `json:",inline"`
 }
 
 // WorkStatus defines the observed state of Work

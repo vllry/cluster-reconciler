@@ -61,9 +61,6 @@ func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interfa
 			result.Err = fmt.Errorf("Invalid gvr")
 		} else if actualState, found := currentResources[obj]; found {
 			if !sameIntent(desiredState.Unstructured, actualState.Unstructured) {
-				fmt.Println("Needs update")
-				fmt.Println(desiredState)
-				fmt.Println(actualState)
 				// Update resource.
 				result.Identifier, result.Err = updateResource(dynamicClient, desiredState)
 				result.Updated = true
@@ -75,12 +72,6 @@ func ReconcileCluster(client kubernetes.Interface, dynamicClient dynamic.Interfa
 			result.Updated = true
 		}
 		results = append(results, result)
-	}
-
-	// Do a diff for any actual resources that are missing from the desired actualState.
-	err = deleteOldManagedResources(client, dynamicClient, desiredObjects)
-	if err != nil {
-		panic(err)
 	}
 
 	return results, nil
@@ -185,7 +176,6 @@ func sameIntent(a unstructured.Unstructured, b unstructured.Unstructured) bool {
 func fetchResourceState(typedClient dynamic.Interface, desiredResources []types.ResourceIdentifier) (map[types.ResourceIdentifier]*types.Semistructured, error) {
 	desiredToActual := map[types.ResourceIdentifier]*types.Semistructured{}
 	for _, desired := range desiredResources {
-		desiredToActual[desired] = nil // Indicate nothing was found.
 		if invalidGVR(desired.GroupVersionResource) {
 			continue
 		}
@@ -193,6 +183,7 @@ func fetchResourceState(typedClient dynamic.Interface, desiredResources []types.
 			desired.GroupVersionResource).Namespace(
 			desired.NamespacedName.Namespace).Get(
 			context.Background(), desired.NamespacedName.Name, metav1.GetOptions{})
+
 		if apierrors.IsNotFound(err) {
 			continue
 		} else if err != nil {
@@ -210,8 +201,8 @@ func fetchResourceState(typedClient dynamic.Interface, desiredResources []types.
 }
 
 func invalidGVR(gvr schema.GroupVersionResource) bool {
-	if gvr.Version == "" || gvr.Resource == "" {
-		return false
+	if gvr.Resource == "" {
+		return true
 	}
-	return true
+	return false
 }

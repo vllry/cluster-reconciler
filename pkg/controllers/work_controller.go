@@ -55,7 +55,7 @@ func (r *WorkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	log := r.Log.WithValues("work", req.NamespacedName)
 
-	var work *multiclusterv1alpha1.Work
+	work := &multiclusterv1alpha1.Work{}
 	err := r.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		log.Error(err, "unable to fetch work")
