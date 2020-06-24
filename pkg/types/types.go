@@ -12,8 +12,10 @@ import (
 
 // ResourceIdentifier provides the identifiers needed to interact with any arbitrary object.
 type ResourceIdentifier struct {
-	GroupVersionKind schema.GroupVersionKind
-	NamespacedName   types.NamespacedName
+	Ordinal              int
+	GroupVersionKind     schema.GroupVersionKind
+	GroupVersionResource schema.GroupVersionResource
+	NamespacedName       types.NamespacedName
 }
 
 // Semistructured provides an Unstructured object, with guaranteed ResourceIdentifier fields.

@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
+	cacheddiscovery "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth" // Needed for misc auth.
@@ -15,6 +17,7 @@ import (
 
 	workv1alpha1 "github.com/vllry/cluster-reconciler/pkg/api/v1alpha1"
 	"github.com/vllry/cluster-reconciler/pkg/controllers"
+	"github.com/vllry/cluster-reconciler/pkg/restmapper"
 )
 
 var (
@@ -50,17 +53,28 @@ func main() {
 		setupLog.Error(err, "Unable to create spoke dynamic client.")
 		os.Exit(1)
 	}
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		setupLog.Error(err, "Unable to create spoke dynamic client.")
+		os.Exit(1)
+	}
 
-	startManager(metricsAddr, client, dynamicClient)
+	startManager(metricsAddr, client, dynamicClient, discoveryClient)
 }
 
-func startManager(metricsAddr string, kubeClient kubernetes.Interface, dynamicClient dynamic.Interface) {
+func startManager(metricsAddr string, kubeClient kubernetes.Interface, dynamicClient dynamic.Interface, discoveryClient discovery.DiscoveryInterface) {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, MetricsBindAddress: metricsAddr})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	stopCh := ctrl.SetupSignalHandler()
+
+	cachedSpokeDiscoveryClient := cacheddiscovery.NewMemCacheClient(discoveryClient)
+	restMapper := restmapper.NewMapper(cachedSpokeDiscoveryClient)
+	go restMapper.Run(stopCh)
 
 	// Add controller into manager
 	workReconciler := &controllers.WorkReconciler{
@@ -69,6 +83,7 @@ func startManager(metricsAddr string, kubeClient kubernetes.Interface, dynamicCl
 		Scheme:             mgr.GetScheme(),
 		SpokeKubeClient:    kubeClient,
 		SpokeDynamicClient: dynamicClient,
+		RestMapper:         restMapper,
 	}
 
 	if err = workReconciler.SetupWithManager(mgr); err != nil {
@@ -77,7 +92,7 @@ func startManager(metricsAddr string, kubeClient kubernetes.Interface, dynamicCl
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(stopCh); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
