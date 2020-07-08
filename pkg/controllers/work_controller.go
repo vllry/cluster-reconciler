@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -86,11 +87,16 @@ func (r *WorkReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	}
 
 	results, _ := reconcile.ReconcileCluster(r.SpokeKubeClient, r.SpokeDynamicClient, r.fetchFromWork(work))
-	desiredManifestConditions := generateAppliedConditionFromResults(results)
+	desiredManifestConditionsMap := generateAppliedConditionFromResults(results)
 	currentManifestConditions := work.Status.ManifestConditions
-	desiredManifestConditions = mergeManifestConditions(desiredManifestConditions, currentManifestConditions)
+	if currentManifestConditions == nil {
+		currentManifestConditions = []multiclusterv1alpha1.ManifestCondition{}
+	}
+	desiredManifestConditions := mergeManifestConditions(desiredManifestConditionsMap, currentManifestConditions)
 	work.Status.ManifestConditions = desiredManifestConditions
-	err = r.Update(ctx, work)
+	work.Status.Conditions = generateWorkConditionsFromManifestConditions(desiredManifestConditions)
+
+	err = r.Status().Update(ctx, work)
 
 	return ctrl.Result{}, err
 }
@@ -155,13 +161,106 @@ func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func mergeManifestConditions(desired, current []multiclusterv1alpha1.ManifestCondition) []multiclusterv1alpha1.ManifestCondition {
-	// TODO
-	return desired
+// mergeManifestConditions merges the desired cond from current cond
+// If a matched idendifier is found, update the current condition with the new condition,
+// else add the new condition.
+func mergeManifestConditions(desired map[multiclusterv1alpha1.ResourceIdentifier]multiclusterv1alpha1.ManifestCondition, current []multiclusterv1alpha1.ManifestCondition) []multiclusterv1alpha1.ManifestCondition {
+	resultConds := []multiclusterv1alpha1.ManifestCondition{}
+	currentCondMap := map[multiclusterv1alpha1.ResourceIdentifier]multiclusterv1alpha1.ManifestCondition{}
+
+	for _, cond := range current {
+		currentCondMap[cond.Identifier] = cond
+	}
+
+	for _, desiredCond := range desired {
+		if curCond, found := currentCondMap[desiredCond.Identifier]; found {
+			mergedCond := mergeManifestCondition(curCond, desiredCond)
+			resultConds = append(resultConds, mergedCond)
+		} else {
+			resultConds = append(resultConds, desiredCond)
+		}
+	}
+	return resultConds
 }
 
-func generateAppliedConditionFromResults(results []reconcile.ReconcileResult) []multiclusterv1alpha1.ManifestCondition {
-	conditions := []multiclusterv1alpha1.ManifestCondition{}
+func mergeManifestCondition(condition, newCondition multiclusterv1alpha1.ManifestCondition) multiclusterv1alpha1.ManifestCondition {
+	return multiclusterv1alpha1.ManifestCondition{
+		Identifier: newCondition.Identifier,
+		Conditions: MergeStatusConditions(condition.Conditions, newCondition.Conditions),
+	}
+}
+
+// MergeStatusConditions returns a new status condition array with merged status conditions. It is based on newConditions,
+// and merges the corresponding existing conditions if exists.
+func MergeStatusConditions(conditions []multiclusterv1alpha1.StatusCondition, newConditions []multiclusterv1alpha1.StatusCondition) []multiclusterv1alpha1.StatusCondition {
+	merged := []multiclusterv1alpha1.StatusCondition{}
+
+	cm := map[string]multiclusterv1alpha1.StatusCondition{}
+	for _, condition := range conditions {
+		cm[condition.Type] = condition
+	}
+
+	for _, newCondition := range newConditions {
+		// merge two conditions if necessary
+		if condition, ok := cm[newCondition.Type]; ok {
+			merged = append(merged, mergeStatusCondition(condition, newCondition))
+			continue
+		}
+
+		newCondition.LastTransitionTime = metav1.NewTime(time.Now())
+		merged = append(merged, newCondition)
+	}
+
+	return merged
+}
+
+// mergeStatusCondition returns a new status condition which merges the properties from the two input conditions.
+// It assumes the two conditions have the same condition type.
+func mergeStatusCondition(condition, newCondition multiclusterv1alpha1.StatusCondition) multiclusterv1alpha1.StatusCondition {
+	merged := multiclusterv1alpha1.StatusCondition{
+		Type:    newCondition.Type,
+		Status:  newCondition.Status,
+		Reason:  newCondition.Reason,
+		Message: newCondition.Message,
+	}
+
+	if condition.Status == newCondition.Status {
+		merged.LastTransitionTime = condition.LastTransitionTime
+	} else {
+		merged.LastTransitionTime = metav1.NewTime(time.Now())
+	}
+
+	return merged
+}
+
+func generateWorkConditionsFromManifestConditions(manifestConditions []multiclusterv1alpha1.ManifestCondition) []multiclusterv1alpha1.StatusCondition {
+	// If all manifests are applied, set work condiition as applied
+	workAppliedCondition := multiclusterv1alpha1.StatusCondition{
+		Type:               "Applied",
+		Status:             metav1.ConditionTrue,
+		Reason:             "WorkApplyDone",
+		Message:            "Manifests in work are applied",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	for _, manifestCond := range manifestConditions {
+		cond := helpers.FindWorkCondition(manifestCond.Conditions, "Applied")
+		if cond == nil {
+			workAppliedCondition.Message = fmt.Sprintf("Resource with identifier %#v not applied", manifestCond.Identifier)
+			workAppliedCondition.Status = metav1.ConditionFalse
+			workAppliedCondition.Reason = "WorkApplyFailed"
+		} else if cond.Status == metav1.ConditionFalse {
+			workAppliedCondition.Message = fmt.Sprintf("Resource with identifier %#v failed to be applied with err %v", manifestCond.Identifier, cond.Message)
+			workAppliedCondition.Status = metav1.ConditionFalse
+			workAppliedCondition.Reason = "WorkApplyFailed"
+		}
+	}
+
+	return []multiclusterv1alpha1.StatusCondition{workAppliedCondition}
+}
+
+func generateAppliedConditionFromResults(results []reconcile.ReconcileResult) map[multiclusterv1alpha1.ResourceIdentifier]multiclusterv1alpha1.ManifestCondition {
+	conditions := map[multiclusterv1alpha1.ResourceIdentifier]multiclusterv1alpha1.ManifestCondition{}
 	for _, result := range results {
 		condition := multiclusterv1alpha1.ManifestCondition{
 			Identifier: multiclusterv1alpha1.ResourceIdentifier{
@@ -177,10 +276,11 @@ func generateAppliedConditionFromResults(results []reconcile.ReconcileResult) []
 		}
 
 		cond := multiclusterv1alpha1.StatusCondition{
-			Type:    "Applied",
-			Status:  metav1.ConditionTrue,
-			Reason:  "ManifestApplyDone",
-			Message: "The manifest is applied successfully",
+			Type:               "Applied",
+			Status:             metav1.ConditionTrue,
+			Reason:             "ManifestApplyDone",
+			Message:            "The manifest is applied successfully",
+			LastTransitionTime: metav1.Now(),
 		}
 
 		if result.Err != nil {
@@ -189,7 +289,7 @@ func generateAppliedConditionFromResults(results []reconcile.ReconcileResult) []
 			cond.Message = fmt.Sprintf("Failed to apply the manifest with err: %v", result.Err)
 		}
 		helpers.SetWorkCondition(&condition.Conditions, cond)
-		conditions = append(conditions, condition)
+		conditions[condition.Identifier] = condition
 	}
 
 	return conditions
