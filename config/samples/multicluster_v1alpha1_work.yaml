@@ -3,5 +3,10 @@ kind: Work
 metadata:
   name: work-sample
 spec:
-  # Add fields here
-  foo: bar
+  workload:
+    manifests:
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: cm1
+        namespace: default

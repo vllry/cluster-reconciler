@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -9,8 +10,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 
 	multiclusterv1alpha1 "github.com/vllry/cluster-reconciler/pkg/api/v1alpha1"
+	"github.com/vllry/cluster-reconciler/pkg/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -76,6 +79,35 @@ var _ = Describe("Work Controller", func() {
 			Eventually(func() error {
 				_, err := k8sClient.CoreV1().ConfigMaps(cmNamespace).Get(context.Background(), cmName, metav1.GetOptions{})
 				return err
+			}, timeout, interval).Should(Succeed())
+
+			Eventually(func() error {
+				resultWork := &multiclusterv1alpha1.Work{}
+				err := workClient.Get(context.Background(), types.NamespacedName{Name: work.Name, Namespace: work.Namespace}, resultWork)
+				if err != nil {
+					return err
+				}
+				if len(resultWork.Status.ManifestConditions) != 1 {
+					return fmt.Errorf("Expect the 1 manifest condition is updated")
+				}
+
+				cond := helpers.FindWorkCondition(resultWork.Status.ManifestConditions[0].Conditions, "Applied")
+				if cond == nil {
+					return fmt.Errorf("Failed to find applied condition")
+				}
+				if !helpers.IsConditionTrue(cond) {
+					return fmt.Errorf("Exepect condition statuso to be true")
+				}
+
+				cond = helpers.FindWorkCondition(resultWork.Status.Conditions, "Applied")
+				if cond == nil {
+					return fmt.Errorf("Failed to find applied condition")
+				}
+				if !helpers.IsConditionTrue(cond) {
+					return fmt.Errorf("Exepect condition statuso to be true")
+				}
+
+				return nil
 			}, timeout, interval).Should(Succeed())
 		})
 	})
