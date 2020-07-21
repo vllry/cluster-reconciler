@@ -2,3 +2,4 @@ cluster-reconciler
 bin/
 .idea
 cover.out
+*kubeconfig
