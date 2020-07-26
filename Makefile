@@ -1,8 +1,12 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= qiujian/cluster-reconciler-controller:latest
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
+# Kubeconfig for controller to connect to hub kube cluster to fetch work.
+HUBKUBECONFIG ?= ./.kubeconfig
+KUBECTL ?= kubectl
+KIND_CLUSTER ?= kind
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -33,8 +37,18 @@ install: manifests
 uninstall: manifests
 	kustomize build config/crd | kubectl delete -f -
 
+cluster-ip:
+  CLUSTER_IP?=$(shell $(KUBECTL) get svc kubernetes -n default -o jsonpath="{.spec.clusterIP}")
+
+kubeconfig-secret: cluster-ip
+	cp $(HUBKUBECONFIG) dev-kubeconfig
+	$(KUBECTL) get ns cluster-reconciler-system; if [ $$? -ne 0 ] ; then $(KUBECTL) create ns cluster-reconciler-system; fi
+	$(KUBECTL) config set clusters.kind-$(KIND_CLUSTER).server https://$(CLUSTER_IP) --kubeconfig dev-kubeconfig
+	$(KUBECTL) delete secret hub-kubeconfig -n cluster-reconciler-system --ignore-not-found
+	$(KUBECTL) create secret generic hub-kubeconfig --from-file=kubeconfig=dev-kubeconfig -n cluster-reconciler-system
+
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
-deploy: manifests
+deploy: manifests kubeconfig-secret
 	cd config/manager && kustomize edit set image controller=${IMG}
 	kustomize build config/default | kubectl apply -f -
 
